@@ -2,13 +2,13 @@
   const utils = {};
 
   function query(selector) {
-    return Array.from(
-      selector instanceof NodeList || Array.isArray(selector)
-        ? selector
-        : selector instanceof HTMLElement
-        ? [selector]
-        : document.querySelectorAll(selector)
-    );
+    if (typeof selector === "string") {
+      return Array.from(document.querySelectorAll(selector));
+    }
+    if (selector instanceof HTMLElement) {
+      return [selector];
+    }
+    return Array.from(selector);
   }
 
   function animate(element, properties, duration = 400, easing = "linear", callback) {
@@ -27,7 +27,7 @@
       let progress = (time - startTime) / duration;
       progress = Math.min(progress, 1);
 
-      if (easing === "ease-in") progress *= progress;
+      if (easing === "ease-in") progress = progress * progress;
       if (easing === "ease-out") progress = 2 - (2 - progress) * progress;
 
       for (let prop in properties) {
@@ -75,13 +75,13 @@
     return this;
   };
 
-  IWO.prototype.on = function (event, callback) {
-    this.elements.forEach((el) => el.addEventListener(event, callback));
+  IWO.prototype.on = function (event, callback, options = {}) {
+    this.elements.forEach((el) => el.addEventListener(event, callback, options));
     return this;
   };
 
-  IWO.prototype.off = function (event, callback) {
-    this.elements.forEach((el) => el.removeEventListener(event, callback));
+  IWO.prototype.off = function (event, callback, options = {}) {
+    this.elements.forEach((el) => el.removeEventListener(event, callback, options));
     return this;
   };
 
@@ -101,7 +101,16 @@
     return this.elements[0]?.textContent;
   };
 
-  IWO.prototype.ajax = function ({ url, method = "GET", data, headers = {}, success, error }) {
+  IWO.prototype.ajax = function ({
+    url,
+    method = "GET",
+    data = null,
+    headers = {},
+    success,
+    error,
+    timeout = 0,
+    dataType = "json",
+  }) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open(method, url, true);
@@ -112,10 +121,16 @@
 
       xhr.onreadystatechange = function () {
         if (xhr.readyState === 4) {
+          let response = xhr.responseText;
           if (xhr.status >= 200 && xhr.status < 300) {
-            let response = xhr.responseText;
-            if (xhr.getResponseHeader("Content-Type").includes("application/json")) {
-              response = JSON.parse(response);
+            if (xhr.getResponseHeader("Content-Type")?.includes("application/json") && dataType === "json") {
+              try {
+                response = JSON.parse(response);
+              } catch (err) {
+                reject(`Error parsing JSON: ${err.message}`);
+                if (error) error(err);
+                return;
+              }
             }
             resolve(response);
             if (success) success(response);
@@ -126,7 +141,15 @@
         }
       };
 
-      xhr.send(data || null);
+      if (timeout > 0) {
+        xhr.timeout = timeout;
+        xhr.ontimeout = function () {
+          reject(new Error("Request timed out"));
+          if (error) error(new Error("Request timed out"));
+        };
+      }
+
+      xhr.send(data);
     });
   };
 
